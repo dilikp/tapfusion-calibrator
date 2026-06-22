@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -27,19 +27,20 @@ jobs:
             zlib1g-dev libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev build-essential
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Build Tools
+        run: |
+          sdkmanager "build-tools;33.0.0" "platforms;android-33" "platform-tools"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/build-tools/33.0.0:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
+
+      - name: Verify aidl
+        run: |
+          which aidl || find $ANDROID_HOME -name "aidl" 2>/dev/null
+          aidl --version
+
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install Cython==0.29.33
-          pip install buildozer==1.5.0
-
-      - name: Build APK
-        run: |
-          buildozer -v android debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tapfusion-calibrator-apk
-          path: bin/*.apk
-          retention-days: 30
+          pip install
