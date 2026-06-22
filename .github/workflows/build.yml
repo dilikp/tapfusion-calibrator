@@ -33,6 +33,24 @@ jobs:
             zlib1g-dev libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev build-essential
 
+      - name: Fix sdkmanager path
+        run: |
+          # Buildozer mencari sdkmanager di path lama (tools/bin/)
+          # SDK modern menyimpannya di cmdline-tools/latest/bin/
+          # Buat symlink supaya Buildozer menemukannya
+          sudo mkdir -p /usr/local/lib/android/sdk/tools/bin
+          sudo ln -sf \
+            /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
+            /usr/local/lib/android/sdk/tools/bin/sdkmanager
+
+          # Verifikasi symlink berhasil
+          ls -la /usr/local/lib/android/sdk/tools/bin/sdkmanager
+          /usr/local/lib/android/sdk/tools/bin/sdkmanager --version
+
+      - name: Accept Android licenses
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses
+
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
