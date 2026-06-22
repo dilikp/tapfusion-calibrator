@@ -14,7 +14,11 @@ fullscreen = 0
 # pyserial tetap dimasukkan untuk berjaga-jaga / kompatibilitas import,
 # tapi yang BENAR-BENAR dipakai untuk akses USB di Android adalah usb4a
 # dan usbserial4a (lihat AndroidSerialBackend di main.py).
+# SEBELUM (hapus usb4a dan usbserial4a dari sini)
 requirements = python3,kivy==2.2.1,kivymd==1.1.1,pyserial,usb4a,usbserial4a
+
+# SESUDAH
+requirements = python3,kivy==2.2.1,kivymd==1.1.1,pyserial
 
 # --- Permission Android ---
 android.permissions = INTERNET
