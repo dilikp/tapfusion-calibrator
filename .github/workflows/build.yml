@@ -35,20 +35,10 @@ jobs:
 
       - name: Fix sdkmanager path
         run: |
-          # Buildozer mencari sdkmanager di path lama (tools/bin/)
-          # SDK modern menyimpannya di cmdline-tools/latest/bin/
-          # Buat symlink supaya Buildozer menemukannya
           sudo mkdir -p /usr/local/lib/android/sdk/tools/bin
           sudo ln -sf \
             /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
             /usr/local/lib/android/sdk/tools/bin/sdkmanager
-
-          # Verifikasi symlink berhasil
-          ls -la /usr/local/lib/android/sdk/tools/bin/sdkmanager
-          /usr/local/lib/android/sdk/tools/bin/sdkmanager --version
-
-      - name: Accept Android licenses
-        run: |
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses
 
       - name: Install Python dependencies
@@ -57,15 +47,85 @@ jobs:
           pip install Cython==0.29.33
           pip install buildozer==1.5.0
 
+      - name: Clone p4a dan patch hostpython3 ke Python 3.11
+        run: |
+          # Clone p4a dulu secara manual
+          mkdir -p .buildozer/android/platform
+          git clone -b master --single-branch \
+            https://github.com/kivy/python-for-android.git \
+            .buildozer/android/platform/python-for-android
+
+          # Patch recipe hostpython3: ganti URL Python 3.14 -> 3.11.9
+          RECIPE=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py
+
+          echo "=== Isi recipe hostpython3 sebelum patch ==="
+          grep -n "version\|url\|3\." "$RECIPE" | head -20
+
+          # Ganti versi Python yang didownload
+          sed -i 's/version = .*/version = "3.11.9"/' "$RECIPE"
+          sed -i 's|cpython/archive/refs/tags/v.*\.tar\.gz|cpython/archive/refs/tags/v3.11.9.tar.gz|g' "$RECIPE"
+
+          echo "=== Isi recipe hostpython3 setelah patch ==="
+          grep -n "version\|url\|3\." "$RECIPE" | head -20
+
+          # Tambahkan cgi stub ke site-packages path yang akan dibuat nanti
+          # dengan membuat script patcher yang dijalankan setelah build Python
+          cat > /tmp/cgi_stub.py << 'EOF'
+          def parse_header(line):
+              parts = line.split(";")
+              key = parts[0].strip()
+              params = {}
+              for p in parts[1:]:
+                  if "=" in p:
+                      k, v = p.strip().split("=", 1)
+                      params[k.strip()] = v.strip().strip('"')
+              return key, params
+          EOF
+
       - name: Build APK
         env:
           ANDROIDSDK: /usr/local/lib/android/sdk
-          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
           ANDROIDAPI: "33"
           ANDROIDMINAPI: "24"
         run: |
           buildozer -v android debug 2>&1 | tee build_log.txt
-          exit ${PIPESTATUS[0]}
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== Build gagal, coba patch cgi dan build ulang ==="
+
+            # Patch semua _tempita.py yang ditemukan
+            find . /tmp /home/runner -name "_tempita.py" 2>/dev/null | while read f; do
+              if grep -q "^import cgi" "$f" 2>/dev/null; then
+                echo "Patching: $f"
+                python3 -c "
+          content = open('$f').read()
+          old = 'import cgi'
+          new = '''try:
+              import cgi
+          except ModuleNotFoundError:
+              from types import ModuleType as _MT
+              import sys as _sys
+              _cgi = _MT(\"cgi\")
+              _cgi.parse_header = lambda l: (l.split(\";\")[0].strip(), {})
+              _sys.modules[\"cgi\"] = _cgi'''
+          open('$f', 'w').write(content.replace(old, new, 1))
+          print('Done')
+          "
+              fi
+            done
+
+            # Tambah cgi.py ke semua site-packages
+            find . /tmp /home/runner -type d -name "site-packages" 2>/dev/null | while read d; do
+              if [ ! -f "$d/cgi.py" ]; then
+                echo "Tambah cgi.py ke: $d"
+                cp /tmp/cgi_stub.py "$d/cgi.py"
+              fi
+            done
+
+            echo "=== Build ulang setelah patch ==="
+            buildozer -v android debug 2>&1 | tee -a build_log.txt
+          fi
 
       - name: Upload log if failed
         if: failure()
