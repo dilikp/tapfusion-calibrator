@@ -21,7 +21,9 @@ android.permissions = INTERNET
 
 # --- WAJIB untuk akses USB Host (USB-to-RS485 converter) ---
 android.add_uses_feature = android.hardware.usb.host:required=false
-
+android.sdk_path = /usr/local/lib/android/sdk
+android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653
+android.build_tools_version = 33.0.0
 # Minimum & target SDK - sesuaikan jika perlu
 android.minapi = 24
 android.api = 33
