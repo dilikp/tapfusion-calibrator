@@ -13,12 +13,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
 
+      # Java 17 wajib untuk Android SDK modern
       - name: Setup Java 17
         uses: actions/setup-java@v4.7.0
         with:
           distribution: 'temurin'
           java-version: '17'
 
+      # Python 3.11 - versi paling stabil untuk Kivy + Buildozer
       - name: Setup Python 3.11
         uses: actions/setup-python@v5.4.0
         with:
@@ -33,77 +35,56 @@ jobs:
             zlib1g-dev libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev build-essential
 
+      # sdkmanager di runner GitHub ada di cmdline-tools/latest/
+      # tapi Buildozer mencarinya di tools/bin/ (path lama) — buat symlink
       - name: Fix sdkmanager path
         run: |
           sudo mkdir -p /usr/local/lib/android/sdk/tools/bin
           sudo ln -sf \
             /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
             /usr/local/lib/android/sdk/tools/bin/sdkmanager
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
+            --licenses 2>/dev/null || true
 
+      # Cython 0.29.x - versi terakhir yang TIDAK bergantung pada modul 'cgi'
+      # Buildozer 1.5.0 - versi stabil terakhir yang teruji dengan p4a 2023.9.16
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install Cython==0.29.33
-          pip install buildozer==1.5.0
+          pip install "Cython==0.29.37"
+          pip install "buildozer==1.5.0"
 
-      - name: Clone p4a dan patch recipe ke Python 3.11.9
+      # Kunci p4a ke tag v2023.9.16 yang memakai Python 3.11 untuk hostpython3
+      # p4a master terbaru memakai Python 3.14 yang sudah tidak punya modul 'cgi'
+      - name: Pin python-for-android ke v2023.9.16
         run: |
           mkdir -p .buildozer/android/platform
-          git clone -b master --single-branch \
+          git clone \
+            --depth 1 \
+            --branch v2023.9.16 \
             https://github.com/kivy/python-for-android.git \
             .buildozer/android/platform/python-for-android
 
-          python3 << 'PYEOF'
-          import re
+          echo "=== Versi p4a yang dipakai ==="
+          cat .buildozer/android/platform/python-for-android/CHANGELOG.md \
+            | head -5 || true
 
-          # Patch hostpython3
-          path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py"
-          content = open(path).read()
-          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", 'version = "3.11.9"', content)
-          content = re.sub(
-              r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
-              "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
-              content
-          )
-          open(path, 'w').write(content)
-          print("hostpython3 dipatch ke 3.11.9")
-
-          # Patch python3
-          path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/python3/__init__.py"
-          content = open(path).read()
-          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", 'version = "3.11.9"', content)
-          content = re.sub(
-              r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
-              "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
-              content
-          )
-          content = re.sub(r"md5sum\s*=\s*['\"][a-f0-9]+['\"]", "md5sum = None", content)
-          content = re.sub(r"sha512sum\s*=\s*['\"][a-f0-9]+['\"]", "sha512sum = None", content)
-          open(path, 'w').write(content)
-          print("python3 dipatch ke 3.11.9")
-
-          # Patch build.py - fix pip upgrade di venv internal yang corrupt
-          path = ".buildozer/android/platform/python-for-android/pythonforandroid/build.py"
-          content = open(path).read()
-          # Ganti perintah pip upgrade yang bermasalah
-          old = "source venv/bin/activate && pip install -U pip"
-          new = "source venv/bin/activate && python -m ensurepip --upgrade && python -m pip install -U pip setuptools"
-          content = content.replace(old, new)
-          open(path, 'w').write(content)
-          print("build.py dipatch untuk fix pip upgrade")
-          PYEOF
+          echo "=== Versi hostpython3 di p4a ini ==="
+          grep -m1 "version" \
+            .buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py \
+            || true
 
       - name: Build APK
         env:
           ANDROIDSDK: /usr/local/lib/android/sdk
+          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
           ANDROIDAPI: "33"
-          ANDROIDMINAPI: "24"
+          ANDROIDMINAPI: "21"
         run: |
           buildozer -v android debug 2>&1 | tee build_log.txt
           exit ${PIPESTATUS[0]}
 
-      - name: Upload log if failed
+      - name: Upload log jika gagal
         if: failure()
         uses: actions/upload-artifact@v4.6.2
         with:
