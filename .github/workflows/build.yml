@@ -47,69 +47,52 @@ jobs:
           pip install Cython==0.29.33
           pip install buildozer==1.5.0
 
-      - name: Clone p4a dan patch KEDUA recipe ke Python 3.11.9
+      - name: Clone p4a dan patch recipe ke Python 3.11.9
         run: |
           mkdir -p .buildozer/android/platform
           git clone -b master --single-branch \
             https://github.com/kivy/python-for-android.git \
             .buildozer/android/platform/python-for-android
 
-          # ── Patch recipe hostpython3 ──────────────────────────────
-          RECIPE_HOST=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py
-          echo "=== hostpython3 SEBELUM patch ==="
-          grep -n "version\|url" "$RECIPE_HOST" | head -10
-
           python3 << 'PYEOF'
-          import re, sys
+          import re
 
+          # Patch hostpython3
           path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py"
           content = open(path).read()
-
-          # Ganti versi
-          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", "version = \"3.11.9\"", content)
-          # Ganti URL download
+          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", 'version = "3.11.9"', content)
           content = re.sub(
               r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
               "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
               content
           )
-
           open(path, 'w').write(content)
-          print("hostpython3 berhasil dipatch")
-          PYEOF
+          print("hostpython3 dipatch ke 3.11.9")
 
-          echo "=== hostpython3 SETELAH patch ==="
-          grep -n "version\|url" "$RECIPE_HOST" | head -10
-
-          # ── Patch recipe python3 ──────────────────────────────────
-          RECIPE_PY3=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/python3/__init__.py
-          echo "=== python3 SEBELUM patch ==="
-          grep -n "version\|url" "$RECIPE_PY3" | head -10
-
-          python3 << 'PYEOF'
-          import re, sys
-
+          # Patch python3
           path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/python3/__init__.py"
           content = open(path).read()
-
-          # Ganti versi
-          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", "version = \"3.11.9\"", content)
-          # Ganti URL download
+          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", 'version = "3.11.9"', content)
           content = re.sub(
               r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
               "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
               content
           )
-          # Ganti checksum jika ada (hapus agar tidak mismatch)
           content = re.sub(r"md5sum\s*=\s*['\"][a-f0-9]+['\"]", "md5sum = None", content)
           content = re.sub(r"sha512sum\s*=\s*['\"][a-f0-9]+['\"]", "sha512sum = None", content)
-
           open(path, 'w').write(content)
-          print("python3 berhasil dipatch")
-          PYEOF
+          print("python3 dipatch ke 3.11.9")
 
-          echo "=== python3 SETELAH patch ==="
-          grep -n "version\|url\|md5\|sha" "$RECIPE_PY3" | head -10
+          # Patch build.py - fix pip upgrade di venv internal yang corrupt
+          path = ".buildozer/android/platform/python-for-android/pythonforandroid/build.py"
+          content = open(path).read()
+          # Ganti perintah pip upgrade yang bermasalah
+          old = "source venv/bin/activate && pip install -U pip"
+          new = "source venv/bin/activate && python -m ensurepip --upgrade && python -m pip install -U pip setuptools"
+          content = content.replace(old, new)
+          open(path, 'w').write(content)
+          print("build.py dipatch untuk fix pip upgrade")
+          PYEOF
 
       - name: Build APK
         env:
