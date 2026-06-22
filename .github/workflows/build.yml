@@ -47,40 +47,69 @@ jobs:
           pip install Cython==0.29.33
           pip install buildozer==1.5.0
 
-      - name: Clone p4a dan patch hostpython3 ke Python 3.11
+      - name: Clone p4a dan patch KEDUA recipe ke Python 3.11.9
         run: |
-          # Clone p4a dulu secara manual
           mkdir -p .buildozer/android/platform
           git clone -b master --single-branch \
             https://github.com/kivy/python-for-android.git \
             .buildozer/android/platform/python-for-android
 
-          # Patch recipe hostpython3: ganti URL Python 3.14 -> 3.11.9
-          RECIPE=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py
+          # ── Patch recipe hostpython3 ──────────────────────────────
+          RECIPE_HOST=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py
+          echo "=== hostpython3 SEBELUM patch ==="
+          grep -n "version\|url" "$RECIPE_HOST" | head -10
 
-          echo "=== Isi recipe hostpython3 sebelum patch ==="
-          grep -n "version\|url\|3\." "$RECIPE" | head -20
+          python3 << 'PYEOF'
+          import re, sys
 
-          # Ganti versi Python yang didownload
-          sed -i 's/version = .*/version = "3.11.9"/' "$RECIPE"
-          sed -i 's|cpython/archive/refs/tags/v.*\.tar\.gz|cpython/archive/refs/tags/v3.11.9.tar.gz|g' "$RECIPE"
+          path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/hostpython3/__init__.py"
+          content = open(path).read()
 
-          echo "=== Isi recipe hostpython3 setelah patch ==="
-          grep -n "version\|url\|3\." "$RECIPE" | head -20
+          # Ganti versi
+          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", "version = \"3.11.9\"", content)
+          # Ganti URL download
+          content = re.sub(
+              r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
+              "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
+              content
+          )
 
-          # Tambahkan cgi stub ke site-packages path yang akan dibuat nanti
-          # dengan membuat script patcher yang dijalankan setelah build Python
-          cat > /tmp/cgi_stub.py << 'EOF'
-          def parse_header(line):
-              parts = line.split(";")
-              key = parts[0].strip()
-              params = {}
-              for p in parts[1:]:
-                  if "=" in p:
-                      k, v = p.strip().split("=", 1)
-                      params[k.strip()] = v.strip().strip('"')
-              return key, params
-          EOF
+          open(path, 'w').write(content)
+          print("hostpython3 berhasil dipatch")
+          PYEOF
+
+          echo "=== hostpython3 SETELAH patch ==="
+          grep -n "version\|url" "$RECIPE_HOST" | head -10
+
+          # ── Patch recipe python3 ──────────────────────────────────
+          RECIPE_PY3=.buildozer/android/platform/python-for-android/pythonforandroid/recipes/python3/__init__.py
+          echo "=== python3 SEBELUM patch ==="
+          grep -n "version\|url" "$RECIPE_PY3" | head -10
+
+          python3 << 'PYEOF'
+          import re, sys
+
+          path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/python3/__init__.py"
+          content = open(path).read()
+
+          # Ganti versi
+          content = re.sub(r"version\s*=\s*['\"]3\.\d+\.\d+['\"]", "version = \"3.11.9\"", content)
+          # Ganti URL download
+          content = re.sub(
+              r"https://github\.com/python/cpython/archive/refs/tags/v[\d\.]+\.tar\.gz",
+              "https://github.com/python/cpython/archive/refs/tags/v3.11.9.tar.gz",
+              content
+          )
+          # Ganti checksum jika ada (hapus agar tidak mismatch)
+          content = re.sub(r"md5sum\s*=\s*['\"][a-f0-9]+['\"]", "md5sum = None", content)
+          content = re.sub(r"sha512sum\s*=\s*['\"][a-f0-9]+['\"]", "sha512sum = None", content)
+
+          open(path, 'w').write(content)
+          print("python3 berhasil dipatch")
+          PYEOF
+
+          echo "=== python3 SETELAH patch ==="
+          grep -n "version\|url\|md5\|sha" "$RECIPE_PY3" | head -10
 
       - name: Build APK
         env:
@@ -89,43 +118,7 @@ jobs:
           ANDROIDMINAPI: "24"
         run: |
           buildozer -v android debug 2>&1 | tee build_log.txt
-          BUILD_EXIT=${PIPESTATUS[0]}
-
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== Build gagal, coba patch cgi dan build ulang ==="
-
-            # Patch semua _tempita.py yang ditemukan
-            find . /tmp /home/runner -name "_tempita.py" 2>/dev/null | while read f; do
-              if grep -q "^import cgi" "$f" 2>/dev/null; then
-                echo "Patching: $f"
-                python3 -c "
-          content = open('$f').read()
-          old = 'import cgi'
-          new = '''try:
-              import cgi
-          except ModuleNotFoundError:
-              from types import ModuleType as _MT
-              import sys as _sys
-              _cgi = _MT(\"cgi\")
-              _cgi.parse_header = lambda l: (l.split(\";\")[0].strip(), {})
-              _sys.modules[\"cgi\"] = _cgi'''
-          open('$f', 'w').write(content.replace(old, new, 1))
-          print('Done')
-          "
-              fi
-            done
-
-            # Tambah cgi.py ke semua site-packages
-            find . /tmp /home/runner -type d -name "site-packages" 2>/dev/null | while read d; do
-              if [ ! -f "$d/cgi.py" ]; then
-                echo "Tambah cgi.py ke: $d"
-                cp /tmp/cgi_stub.py "$d/cgi.py"
-              fi
-            done
-
-            echo "=== Build ulang setelah patch ==="
-            buildozer -v android debug 2>&1 | tee -a build_log.txt
-          fi
+          exit ${PIPESTATUS[0]}
 
       - name: Upload log if failed
         if: failure()
