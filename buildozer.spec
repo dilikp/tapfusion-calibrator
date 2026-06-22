@@ -40,6 +40,8 @@ android.archs = arm64-v8a, armeabi-v7a
 # android.manifest_intent_filters jika dibutuhkan.
 
 # Hapus tanda # di bawah ini dan siapkan file icon.png (ukuran 512x512)
+# Arahkan ke p4a yang sudah diclone dan dipatch di workflow
+p4a.source_dir = .buildozer/android/platform/python-for-android
 # di folder project jika ingin app punya icon custom.
 # icon.filename = %(source.dir)s/icon.png
 
